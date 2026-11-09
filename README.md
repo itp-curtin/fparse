@@ -61,8 +61,8 @@ where the submodule is then added with:
 
 ```
 git submodule add <fparse_repo_url> external/fparse
-
 ```
+
 You will need to adjust your build system to ensure `fparse` is compiled and
 linked with your project, and that the module files are in the search path. To
 see how to compile and link `fparse` with your project which uses Make, see the
@@ -151,8 +151,9 @@ missing input is handled:
 Example:
 
 ```Fortran
-call add_key(schema, 'OPTIONS', 'mode', .false., .true., 'standard')
-call add_key(schema, 'OPTIONS', 'flags', .false., .false., '')
+                   ! block name, key name, required, has_default, default_value
+call add_key(schema, 'OPTIONS', 'mode',    .false.,  .true.,      'standard')
+call add_key(schema, 'OPTIONS', 'flags',   .false.,  .false.,     '')
 ```
 
 In this example, `mode` is optional and defaults to `standard`, while `flags`
