@@ -150,7 +150,7 @@ missing input is handled:
 
 Example:
 
-```fortran
+```Fortran
 call add_key(schema, 'OPTIONS', 'mode', .false., .true., 'standard')
 call add_key(schema, 'OPTIONS', 'flags', .false., .false., '')
 ```
