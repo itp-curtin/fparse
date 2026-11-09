@@ -464,9 +464,14 @@ contains
         if (iblock_data <= 0) then
             if (schema%blocks(iblock_def)%required) then
                 call stop_error(ounit, block_name, key_name, 'required block missing')
-            else
-                found = .false.
-                raw = ''
+            else ! in this case the block is not present but is optional anyway
+                if (schema%blocks(iblock_def)%keys(ikey_def)%has_default) then ! populate the default value if the key has one
+                    raw = schema%blocks(iblock_def)%keys(ikey_def)%default_value
+                    found = .true.
+                else
+                    raw = ''
+                    found = .false.
+                endif
                 return
             endif
         endif

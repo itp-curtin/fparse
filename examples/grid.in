@@ -1,5 +1,5 @@
 GRID
 [dr] 0.001
 [rmax] 130
-[meshr] 400
+[n_rpoints] 400
 END

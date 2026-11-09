@@ -300,28 +300,28 @@ contains
         !
         integer :: i, j, iblock
 
+        ! check all required blocks are present in the input tree
         do i = 1, size(schema%blocks)
             if (schema%blocks(i)%required) then
-                if (find_block_data_index(tree, schema%blocks(i)%name) == 0) &
-                    then
+                if (find_block_data_index(tree, schema%blocks(i)%name) == 0) then
                     write(ounit,*) 'error: required block missing: ', trim(schema%blocks(i)%name)
                     stop
                 endif
             endif
         enddo
 
+        ! check all required keys are present in the input tree for each block
         do i = 1, size(tree%blocks)
             iblock = find_block_index(schema, tree%blocks(i)%name)
             if (iblock == 0) cycle
             do j = 1, size(schema%blocks(iblock)%keys)
                 if (schema%blocks(iblock)%keys(j)%required) then
-                    if (find_pair_index(tree%blocks(i), &
-                        schema%blocks(iblock)%keys(j)%name) == 0) then
-                        write(ounit,*) 'error: required key missing: ', &
-                            trim(schema%blocks(iblock)%name), ' ', &
-                            trim(schema%blocks(iblock)%keys(j)%name)
+
+                    if (find_pair_index(tree%blocks(i), schema%blocks(iblock)%keys(j)%name) == 0) then
+                        write(ounit,*) 'error: required key missing: ', trim(schema%blocks(iblock)%name), ' ', trim(schema%blocks(iblock)%keys(j)%name)
                         stop
                     endif
+
                 endif
             enddo
         enddo
