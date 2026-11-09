@@ -18,19 +18,19 @@ module fparse_types
         type(block_def_type), allocatable :: blocks(:)
     end type schema_type
 
-    type kv_pair_type
+    type key_value_pair_type
         character(len=:), allocatable :: key
         character(len=:), allocatable :: value
         integer :: line
         character(len=:), allocatable :: source
-    end type kv_pair_type
+    end type key_value_pair_type
 
     type block_data_type
         character(len=:), allocatable :: name
         integer :: start_line
         integer :: end_line
         character(len=:), allocatable :: source
-        type(kv_pair_type), allocatable :: pairs(:)
+        type(key_value_pair_type), allocatable :: pairs(:)
     end type block_data_type
 
     type input_tree_type

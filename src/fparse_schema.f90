@@ -1,6 +1,6 @@
 module fparse_schema
     use fparse_types
-    use fparse_util, only: normalize_name, normalize_key
+    use fparse_util, only: normalise_name, normalise_key
     implicit none
 
 contains
@@ -8,7 +8,7 @@ contains
     !--------------------------------------------------------------------------
     ! init_schema
     !
-    ! purpose: initialize an empty schema.
+    ! purpose: initialise an empty schema.
     !
     ! inputs:
     !          1. schema
@@ -45,18 +45,23 @@ contains
         logical, intent(in) :: required
         !
         type(block_def_type), allocatable :: tmp(:)
-        integer :: n
+        integer :: n_curr_existing_blocks
 
-        n = size(schema%blocks)
-        allocate(tmp(n+1))
-        if (n > 0) then
-            tmp(1:n) = schema%blocks
+        n_curr_existing_blocks = size(schema%blocks)
+        allocate(tmp(n_curr_existing_blocks+1))
+
+        if (n_curr_existing_blocks > 0) then
+            tmp(1:n_curr_existing_blocks) = schema%blocks
         endif
+
+        ! after this call, the allocation of tmp is transferred to schema%blocks, and tmp is deallocated
         call move_alloc(tmp, schema%blocks)
 
-        schema%blocks(n+1)%name = normalize_name(name)
-        schema%blocks(n+1)%required = required
-        allocate(schema%blocks(n+1)%keys(0))
+        schema%blocks(n_curr_existing_blocks+1)%name = normalise_name(name)
+        schema%blocks(n_curr_existing_blocks+1)%required = required
+
+        ! initialise the number of keys in the block to 0
+        allocate(schema%blocks(n_curr_existing_blocks+1)%keys(0))
 
     end subroutine add_block
 
@@ -77,8 +82,7 @@ contains
     ! outputs:
     !          1. schema
     !--------------------------------------------------------------------------
-    subroutine add_key(schema, block_name, key_name, required, &
-        has_default, default_value)
+    subroutine add_key(schema, block_name, key_name, required, has_default, default_value)
         implicit none
         type(schema_type), intent(inout) :: schema
         character(len=*), intent(in) :: block_name
@@ -89,7 +93,7 @@ contains
         !
         integer :: iblock
         type(key_def_type), allocatable :: tmp(:)
-        integer :: n
+        integer :: n_curr_existing_keys
 
         iblock = find_block_index(schema, block_name)
         if (iblock <= 0) then
@@ -97,19 +101,21 @@ contains
             stop
         endif
 
-        n = size(schema%blocks(iblock)%keys)
-        allocate(tmp(n+1))
-        if (n > 0) then
-            tmp(1:n) = schema%blocks(iblock)%keys
+        n_curr_existing_keys = size(schema%blocks(iblock)%keys)
+        allocate(tmp(n_curr_existing_keys+1))
+
+        if (n_curr_existing_keys > 0) then
+            tmp(1:n_curr_existing_keys) = schema%blocks(iblock)%keys
         endif
+
         call move_alloc(tmp, schema%blocks(iblock)%keys)
 
-        schema%blocks(iblock)%keys(n+1)%name = normalize_key(key_name)
-        schema%blocks(iblock)%keys(n+1)%required = required
-        schema%blocks(iblock)%keys(n+1)%has_default = has_default
+        schema%blocks(iblock)%keys(n_curr_existing_keys+1)%name = normalise_key(key_name)
+        schema%blocks(iblock)%keys(n_curr_existing_keys+1)%required = required
+        schema%blocks(iblock)%keys(n_curr_existing_keys+1)%has_default = has_default
+
         if (has_default) then
-            schema%blocks(iblock)%keys(n+1)%default_value = &
-                trim(default_value)
+            schema%blocks(iblock)%keys(n_curr_existing_keys+1)%default_value = trim(default_value)
         endif
 
     end subroutine add_key
@@ -135,7 +141,8 @@ contains
         character(len=:), allocatable :: nname
         integer :: i
 
-        nname = normalize_name(name)
+        nname = normalise_name(name)
+
         find_block_index = 0
         do i = 1, size(schema%blocks)
             if (schema%blocks(i)%name == nname) then
@@ -166,7 +173,8 @@ contains
         character(len=:), allocatable :: nname
         integer :: i
 
-        nname = normalize_key(name)
+        nname = normalise_key(name)
+
         find_key_index = 0
         do i = 1, size(block%keys)
             if (block%keys(i)%name == nname) then

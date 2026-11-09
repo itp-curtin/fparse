@@ -1,7 +1,7 @@
 module fparse_getters
     use fparse_types
     use fparse_schema, only: find_block_index, find_key_index
-    use fparse_util, only: normalize_name, normalize_key, split_tokens
+    use fparse_util, only: normalise_name, normalise_key, split_tokens
     implicit none
 
 contains
@@ -9,7 +9,7 @@ contains
     !--------------------------------------------------------------------------
     ! has_block
     !
-    ! purpose: check if a block exists in the parsed tree.
+    ! purpose: check if a block exists in the parsed input tree.
     !
     ! inputs:
     !          1. tree
@@ -25,7 +25,7 @@ contains
         integer :: i
         character(len=:), allocatable :: nname
 
-        nname = normalize_name(block_name)
+        nname = normalise_name(block_name)
         has_block = .false.
         do i = 1, size(tree%blocks)
             if (tree%blocks(i)%name == nname) then
@@ -33,6 +33,7 @@ contains
                 return
             endif
         enddo
+
     end function has_block
 
 
@@ -204,6 +205,7 @@ contains
         if (present(found)) then
             found = is_found
         endif
+
     end subroutine get_real
 
 
@@ -237,10 +239,10 @@ contains
         logical :: is_found
         character(len=:), allocatable :: nraw
 
-        call get_raw_value(schema, tree, block_name, key_name, raw, &
-            ounit, is_found)
+        call get_raw_value(schema, tree, block_name, key_name, raw, ounit, is_found)
+
         if (is_found) then
-            nraw = normalize_name(raw)
+            nraw = normalise_name(raw)
             select case (nraw)
             case ('ON','TRUE','YES','1')
                 value = .true.
@@ -256,6 +258,7 @@ contains
         if (present(found)) then
             found = is_found
         endif
+
     end subroutine get_logical
 
 
@@ -356,8 +359,7 @@ contains
             do i = 1, nvalues
                 read(tokens(i), *, iostat=io) values(i)
                 if (io /= 0) then
-                    call stop_error(ounit, block_name, key_name, &
-                        'invalid real list')
+                    call stop_error(ounit, block_name, key_name, 'invalid real list')
                 endif
             enddo
         else
@@ -512,7 +514,7 @@ contains
         character(len=:), allocatable :: nname
         integer :: i
 
-        nname = normalize_name(name)
+        nname = normalise_name(name)
         find_block_data_index = 0
         do i = 1, size(tree%blocks)
             if (tree%blocks(i)%name == nname) then
@@ -544,7 +546,7 @@ contains
         character(len=:), allocatable :: nkey
         integer :: i
 
-        nkey = normalize_key(key)
+        nkey = normalise_key(key)
         find_pair_index = 0
         do i = 1, size(block%pairs)
             if (block%pairs(i)%key == nkey) then

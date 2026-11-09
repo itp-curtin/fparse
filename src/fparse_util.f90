@@ -5,7 +5,7 @@ module fparse_util
 contains
 
     !--------------------------------------------------------------------------
-    ! normalize_name
+    ! normalise_name
     !
     ! purpose: return trimmed, left-adjusted, uppercase name.
     !
@@ -15,7 +15,7 @@ contains
     ! outputs:
     !          1. output
     !--------------------------------------------------------------------------
-    function normalize_name(input) result(output)
+    function normalise_name(input) result(output)
         implicit none
         character(len=*), intent(in) :: input
         !
@@ -32,13 +32,13 @@ contains
             endif
         enddo
 
-    end function normalize_name
+    end function normalise_name
 
 
     !--------------------------------------------------------------------------
-    ! normalize_key
+    ! normalise_key
     !
-    ! purpose: strip brackets if present and normalize to uppercase.
+    ! purpose: remove brackets if present and normalise string to uppercase.
     !
     ! inputs:
     !          1. input
@@ -46,24 +46,24 @@ contains
     ! outputs:
     !          1. output
     !--------------------------------------------------------------------------
-    function normalize_key(input) result(output)
+    function normalise_key(input) result(output)
         implicit none
         character(len=*), intent(in) :: input
         !
         character(len=:), allocatable :: output
         character(len=:), allocatable :: tmp
-        integer :: n
+        integer :: n_key_chars
 
         tmp = adjustl(trim(input))
-        n = len(tmp)
-        if (n >= 2) then
-            if (tmp(1:1) == '[' .and. tmp(n:n) == ']') then
-                tmp = tmp(2:n-1)
+        n_key_chars = len(tmp)
+        if (n_key_chars >= 2) then
+            if (tmp(1:1) == '[' .and. tmp(n_key_chars:n_key_chars) == ']') then
+                tmp = tmp(2:n_key_chars-1)
             endif
         endif
-        output = normalize_name(tmp)
+        output = normalise_name(tmp)
 
-    end function normalize_key
+    end function normalise_key
 
 
     !--------------------------------------------------------------------------
@@ -75,20 +75,20 @@ contains
     !          1. line
     !
     ! outputs:
-    !          1. code
+    !          1. content
     !--------------------------------------------------------------------------
-    subroutine strip_comment(line, code)
+    subroutine strip_comment(line, content)
         implicit none
         character(len=*), intent(in) :: line
-        character(len=:), allocatable, intent(out) :: code
+        character(len=:), allocatable, intent(out) :: content
         !
         integer :: pos
 
         pos = index(line, '#')
         if (pos > 0) then
-            code = trim(line(1:pos-1))
+            content = trim(line(1:pos-1))
         else
-            code = trim(line)
+            content = trim(line)
         endif
 
     end subroutine strip_comment
@@ -129,13 +129,13 @@ contains
         implicit none
         character(len=*), intent(in) :: line
         !
-        integer :: n
+        integer :: n_line_chars
 
-        n = len_trim(line)
-        if (n <= 0) then
+        n_line_chars = len_trim(line)
+        if (n_line_chars <= 0) then
             ends_with_backslash = .false.
         else
-            ends_with_backslash = (line(n:n) == backslash_char)
+            ends_with_backslash = (line(n_line_chars:n_line_chars) == backslash_char)
         endif
 
     end function ends_with_backslash
@@ -157,14 +157,14 @@ contains
         character(len=*), intent(in) :: line
         character(len=:), allocatable :: output
         !
-        integer :: n
+        integer :: n_line_chars
 
-        n = len_trim(line)
-        if (n <= 0) then
+        n_line_chars = len_trim(line)
+        if (n_line_chars <= 0) then
             output = ''
         else
-            if (line(n:n) == backslash_char) then
-                output = trim(line(1:n-1))
+            if (line(n_line_chars:n_line_chars) == backslash_char) then
+                output = trim(line(1:n_line_chars-1))
             else
                 output = trim(line)
             endif
@@ -195,7 +195,7 @@ contains
         character(len=:), allocatable :: tmp
 
         tmp = adjustl(trim(line))
-        pos = index(tmp, ' ')
+        pos = index(tmp, ' ') ! by default 'index' returns the index of the first instance of the substring
         if (pos == 0) then
             token = tmp
             rest = ''
@@ -225,12 +225,12 @@ contains
         character(len=:), allocatable, intent(out) :: tokens(:)
         integer, intent(out) :: ntokens
         !
-        integer :: i, n, start, finish
-        character(len=:), allocatable :: str
+        integer :: i, n_input_chars, start, finish
+        character(len=:), allocatable :: trimmed_input
 
-        str = adjustl(trim(input))
-        n = len_trim(str)
-        if (n == 0) then
+        trimmed_input = adjustl(trim(input))
+        n_input_chars = len_trim(trimmed_input)
+        if (n_input_chars == 0) then
             allocate(character(len=1) :: tokens(0))
             ntokens = 0
             return
@@ -238,34 +238,34 @@ contains
 
         ntokens = 0
         start = 1
-        do while (start <= n)
-            finish = index(str(start:), ' ')
+        do while (start <= n_input_chars)
+            finish = index(trimmed_input(start:), ' ')
             if (finish == 0) then
                 ntokens = ntokens + 1
                 exit
             else
                 ntokens = ntokens + 1
                 start = start + finish
-                do while (start <= n .and. str(start:start) == ' ')
+                do while (start <= n_input_chars .and. trimmed_input(start:start) == ' ')
                     start = start + 1
                 enddo
             endif
         enddo
 
-        allocate(character(len=len(str)) :: tokens(ntokens))
+        allocate(character(len=len(trimmed_input)) :: tokens(ntokens))
         ntokens = 0
         start = 1
-        do while (start <= n)
-            finish = index(str(start:), ' ')
+        do while (start <= n_input_chars)
+            finish = index(trimmed_input(start:), ' ')
             if (finish == 0) then
                 ntokens = ntokens + 1
-                tokens(ntokens) = str(start:n)
+                tokens(ntokens) = trimmed_input(start:n_input_chars)
                 exit
             else
                 ntokens = ntokens + 1
-                tokens(ntokens) = str(start:start+finish-2)
+                tokens(ntokens) = trimmed_input(start:start+finish-2)
                 start = start + finish
-                do while (start <= n .and. str(start:start) == ' ')
+                do while (start <= n_input_chars .and. trimmed_input(start:start) == ' ')
                     start = start + 1
                 enddo
             endif
@@ -317,14 +317,14 @@ contains
 
         i = len_trim(path)
         do while (i > 0)
-            if (path(i:i) == '/') exit
+            if (path(i:i) == '/') exit ! at this point we know where the last forward slash is, so exit search loop
             i = i - 1
         enddo
 
-        if (i <= 0) then
+        if (i <= 0) then ! if this is true we assume file is in the current directory, so we return '.' as the dirname
             dirname = '.'
         else
-            dirname = path(1:i-1)
+            dirname = path(1:i-1) ! otherwise store everything up to the last forward slash as the dirname
             if (len_trim(dirname) == 0) then
                 dirname = '/'
             endif

@@ -1,8 +1,11 @@
 module fparse_parser
     use fparse_types
     use fparse_schema, only: find_block_index, find_key_index
-    use fparse_util, only: normalize_name, normalize_key, &
-        split_first_token, ends_with_backslash, remove_trailing_backslash
+    use fparse_util, only: normalise_name, &
+                           normalise_key, &
+                           split_first_token, &
+                           ends_with_backslash, &
+                           remove_trailing_backslash
     use fparse_io, only: load_file_lines
     implicit none
 
@@ -29,17 +32,17 @@ contains
         integer, intent(in) :: ounit
         !
         character(len=:), allocatable :: lines(:)
-        character(len=:), allocatable :: sources(:)
+        character(len=:), allocatable :: file_sources(:)
         integer, allocatable :: line_nums(:)
-        character(len=:), allocatable :: llines(:)
-        character(len=:), allocatable :: lsources(:)
-        integer, allocatable :: lnums(:)
+        character(len=:), allocatable :: logical_lines(:)
+        character(len=:), allocatable :: logical_file_sources(:)
+        integer, allocatable :: logical_line_nums(:)
 
-        call load_file_lines(filename, lines, sources, line_nums, ounit)
+        call load_file_lines(filename, lines, file_sources, line_nums, ounit)
 
-        call build_logical_lines(lines, sources, line_nums, llines, lsources, lnums, ounit)
+        call build_logical_lines(lines, file_sources, line_nums, logical_lines, logical_file_sources, logical_line_nums, ounit)
 
-        call parse_lines(schema, llines, lsources, lnums, tree, ounit)
+        call parse_lines(schema, logical_lines, logical_file_sources, logical_line_nums, tree, ounit)
 
         call validate_required(schema, tree, ounit)
 
@@ -49,56 +52,63 @@ contains
     !--------------------------------------------------------------------------
     ! build_logical_lines
     !
-    ! purpose: join continued lines ending with backslash.
+    ! purpose: join continued lines ending with backslash. this then compresses
+    !          the original "lines" array into a new "logical_lines" array, with
+    !          the multi-line inputs joined into a single line.
+    !
     !
     ! inputs:
     !          1. lines
-    !          2. sources
+    !          2. file_sources
     !          3. line_nums
     !
     ! outputs:
-    !          1. llines
-    !          2. lsources
-    !          3. lnums
+    !          1. logical_lines
+    !          2. logical_file_sources
+    !          3. logical_line_nums
     !--------------------------------------------------------------------------
-    subroutine build_logical_lines(lines, sources, line_nums, llines, &
-        lsources, lnums, ounit)
+    subroutine build_logical_lines(lines, file_sources, line_nums, logical_lines, logical_file_sources, logical_line_nums, ounit)
         implicit none
         character(len=:), allocatable, intent(in) :: lines(:)
-        character(len=:), allocatable, intent(in) :: sources(:)
+        character(len=:), allocatable, intent(in) :: file_sources(:)
         integer, allocatable, intent(in) :: line_nums(:)
-        character(len=:), allocatable, intent(out) :: llines(:)
-        character(len=:), allocatable, intent(out) :: lsources(:)
-        integer, allocatable, intent(out) :: lnums(:)
+        character(len=:), allocatable, intent(out) :: logical_lines(:)
+        character(len=:), allocatable, intent(out) :: logical_file_sources(:)
+        integer, allocatable, intent(out) :: logical_line_nums(:)
         integer, intent(in) :: ounit
         !
-        integer :: i, n, start_line
+        integer :: i
+        integer :: n_lines
+        integer :: start_line
         character(len=:), allocatable :: current
         character(len=:), allocatable :: combined
         character(len=:), allocatable :: start_source
 
-        allocate(character(len=1) :: llines(0))
-        allocate(character(len=1) :: lsources(0))
-        allocate(lnums(0))
+        allocate(character(len=1) :: logical_lines(0))
+        allocate(character(len=1) :: logical_file_sources(0))
+        allocate(logical_line_nums(0))
 
         i = 1
-        n = size(lines)
-        do while (i <= n)
+        n_lines = size(lines)
+        do while (i <= n_lines)
             current = lines(i)
             combined = current
-            start_source = sources(i)
+            start_source = file_sources(i)
             start_line = line_nums(i)
+
             do while (ends_with_backslash(combined))
                 combined = remove_trailing_backslash(combined)
                 i = i + 1
-                if (i > n) then
-                    call stop_error(ounit, start_source, start_line,'line continuation missing')
+                if (i > n_lines) then
+                    call stop_error(ounit, start_source, start_line, 'line continuation missing')
                 endif
+                ! put a space between the inputs across the two lines
                 combined = trim(combined) // ' ' // trim(lines(i))
             enddo
-            call append_logical(llines, lsources, lnums, combined, &
-                start_source, start_line)
+
+            call append_logical(logical_lines, logical_file_sources, logical_line_nums, combined, start_source, start_line)
             i = i + 1
+
         enddo
 
     end subroutine build_logical_lines
@@ -115,15 +125,15 @@ contains
     !          3. line_num
     !
     ! outputs:
-    !          1. llines
-    !          2. lsources
-    !          3. lnums
+    !          1. logical_lines
+    !          2. logical_file_sources
+    !          3. logical_line_nums
     !--------------------------------------------------------------------------
-    subroutine append_logical(llines, lsources, lnums, line, source, line_num)
+    subroutine append_logical(logical_lines, logical_file_sources, logical_line_nums, line, source, line_num)
         implicit none
-        character(len=:), allocatable, intent(inout) :: llines(:)
-        character(len=:), allocatable, intent(inout) :: lsources(:)
-        integer, allocatable, intent(inout) :: lnums(:)
+        character(len=:), allocatable, intent(inout) :: logical_lines(:)
+        character(len=:), allocatable, intent(inout) :: logical_file_sources(:)
+        integer, allocatable, intent(inout) :: logical_line_nums(:)
         character(len=*), intent(in) :: line
         character(len=*), intent(in) :: source
         integer, intent(in) :: line_num
@@ -135,13 +145,13 @@ contains
         integer :: len_lines, len_sources
         integer :: new_len_lines, new_len_sources
 
-        n = size(llines)
+        n = size(logical_lines)
         len_lines = 0
         len_sources = 0
 
         if (n > 0) then
-            len_lines = len(llines(1))
-            len_sources = len(lsources(1))
+            len_lines = len(logical_lines(1))
+            len_sources = len(logical_file_sources(1))
         endif
 
         new_len_lines = max(1, max(len_lines, len_trim(line)))
@@ -152,17 +162,17 @@ contains
         allocate(tmp_nums(n+1))
 
         if (n > 0) then
-            tmp_lines(1:n) = llines
-            tmp_sources(1:n) = lsources
-            tmp_nums(1:n) = lnums
+            tmp_lines(1:n) = logical_lines
+            tmp_sources(1:n) = logical_file_sources
+            tmp_nums(1:n) = logical_line_nums
         endif
         tmp_lines(n+1) = trim(line)
         tmp_sources(n+1) = source
         tmp_nums(n+1) = line_num
 
-        call move_alloc(tmp_lines, llines)
-        call move_alloc(tmp_sources, lsources)
-        call move_alloc(tmp_nums, lnums)
+        call move_alloc(tmp_lines, logical_lines)
+        call move_alloc(tmp_sources, logical_file_sources)
+        call move_alloc(tmp_nums, logical_line_nums)
 
     end subroutine append_logical
 
@@ -170,86 +180,102 @@ contains
     !--------------------------------------------------------------------------
     ! parse_lines
     !
-    ! purpose: parse logical lines into an input tree.
+    ! purpose: parse the logical lines into the input tree
     !
     ! inputs:
     !          1. schema
-    !          2. llines
-    !          3. lsources
-    !          4. lnums
+    !          2. logical_lines
+    !          3. logical_file_sources
+    !          4. logical_line_nums
     !          5. ounit
     !
     ! outputs:
     !          1. tree
     !--------------------------------------------------------------------------
-    subroutine parse_lines(schema, llines, lsources, lnums, tree, ounit)
+    subroutine parse_lines(schema, logical_lines, logical_file_sources, logical_line_nums, tree, ounit)
         implicit none
         type(schema_type), intent(in) :: schema
-        character(len=:), allocatable, intent(in) :: llines(:)
-        character(len=:), allocatable, intent(in) :: lsources(:)
-        integer, allocatable, intent(in) :: lnums(:)
+        character(len=:), allocatable, intent(in) :: logical_lines(:)
+        character(len=:), allocatable, intent(in) :: logical_file_sources(:)
+        integer, allocatable, intent(in) :: logical_line_nums(:)
         type(input_tree_type), intent(out) :: tree
         integer, intent(in) :: ounit
         !
         integer :: i
         integer :: iblock_def
         logical :: in_block
-        type(block_data_type) :: current
+        type(block_data_type) :: current_block
         character(len=:), allocatable :: line
         character(len=:), allocatable :: token
         character(len=:), allocatable :: rest
-        character(len=:), allocatable :: bname
-        character(len=:), allocatable :: kname
+        character(len=:), allocatable :: block_name
+        character(len=:), allocatable :: key_name
 
         allocate(tree%blocks(0))
         in_block = .false.
 
-        do i = 1, size(llines)
-            line = llines(i)
+        do i = 1, size(logical_lines)
+
+            line = logical_lines(i)
             if (len_trim(line) == 0) cycle
 
             if (.not. in_block) then
-                if (normalize_name(line) == 'END') then
-                    call stop_error(ounit, lsources(i), lnums(i), 'unexpected end without block')
+
+                if (normalise_name(line) == 'END') then
+                    call stop_error(ounit, logical_file_sources(i), logical_line_nums(i), 'unexpected end without block')
                 endif
-                bname = normalize_name(line)
-                iblock_def = find_block_index(schema, bname)
+
+                block_name = normalise_name(line)
+                iblock_def = find_block_index(schema, block_name)
+
                 if (iblock_def == 0) then
-                    call stop_error(ounit, lsources(i), lnums(i), 'unknown block: ' // trim(line))
+                    call stop_error(ounit, logical_file_sources(i), logical_line_nums(i), 'unknown block: ' // trim(line))
                 endif
-                if (find_block_data_index(tree, bname) > 0) then
-                    call stop_error(ounit, lsources(i), lnums(i), 'duplicate block: ' // trim(line))
+
+                ! this if statement checks that a block name is not already registered in the input tree
+                if (find_block_data_index(tree, block_name) > 0) then
+                    call stop_error(ounit, logical_file_sources(i), logical_line_nums(i), 'duplicate block: ' // trim(line))
                 endif
+
+                ! if reach this point then we must have entered a new block and are at its name line so we can initialise it
                 in_block = .true.
-                call init_block(current, bname, lsources(i), lnums(i))
+                call init_block(current_block, block_name, logical_file_sources(i), logical_line_nums(i))
+
             else
-                if (normalize_name(line) == 'END') then
-                    current%end_line = lnums(i)
-                    call append_block(tree, current)
+                if (normalise_name(line) == 'END') then
+                    current_block%end_line = logical_line_nums(i)
+                    ! at this point we have collected all the data for the current block so we can append it to the input tree
+                    call append_block(tree, current_block)
                     in_block = .false.
                 else
-                    if (find_block_index(schema, normalize_name(line)) > 0) then
-                        call stop_error(ounit, lsources(i), lnums(i), 'block not closed before new block')
+                    if (find_block_index(schema, normalise_name(line)) > 0) then
+                        call stop_error(ounit, logical_file_sources(i), logical_line_nums(i), 'block not closed before new block')
                     endif
+
                     call split_first_token(line, token, rest)
+
                     if (len_trim(rest) == 0) then
-                        call stop_error(ounit, lsources(i), lnums(i), 'missing value for key')
+                        call stop_error(ounit, logical_file_sources(i), logical_line_nums(i), 'missing value for key')
                     endif
-                    kname = normalize_key(token)
-                    if (find_key_index(schema%blocks(iblock_def), kname) == 0) &
+
+                    key_name = normalise_key(token)
+
+                    if (find_key_index(schema%blocks(iblock_def), key_name) == 0) &
                         then
-                        call stop_error(ounit, lsources(i), lnums(i), 'unknown key: ' // trim(token))
+                        call stop_error(ounit, logical_file_sources(i), logical_line_nums(i), 'unknown key: ' // trim(token))
                     endif
-                    if (find_pair_index(current, kname) > 0) then
-                        call stop_error(ounit, lsources(i), lnums(i), 'duplicate key: ' // trim(token))
+
+                    if (find_pair_index(current_block, key_name) > 0) then
+                        call stop_error(ounit, logical_file_sources(i), logical_line_nums(i), 'duplicate key: ' // trim(token))
                     endif
-                    call append_pair(current, kname, rest, lsources(i), lnums(i))
+
+                    call append_pair(current_block, key_name, rest, logical_file_sources(i), logical_line_nums(i))
                 endif
             endif
         enddo
 
         if (in_block) then
-            call stop_error(ounit, current%source, current%start_line, 'block not closed: ' // trim(current%name))
+            call stop_error(ounit, current_block%source, current_block%start_line, 'block not closed: ' // trim(current_block%name))
         endif
 
     end subroutine parse_lines
@@ -258,7 +284,8 @@ contains
     !--------------------------------------------------------------------------
     ! validate_required
     !
-    ! purpose: check required blocks and keys are present.
+    ! purpose: check required blocks and keys are present by comparing what is
+    !          in the schema with what is in the parsed input tree.
     !
     ! inputs:
     !          1. schema
@@ -305,7 +332,7 @@ contains
     !--------------------------------------------------------------------------
     ! init_block
     !
-    ! purpose: initialize a block data object.
+    ! purpose: initialise a block data object.
     !
     ! inputs:
     !          1. name
@@ -382,7 +409,7 @@ contains
         character(len=*), intent(in) :: source
         integer, intent(in) :: line
         !
-        type(kv_pair_type), allocatable :: tmp(:)
+        type(key_value_pair_type), allocatable :: tmp(:)
         integer :: n
 
         n = size(block%pairs)
@@ -419,7 +446,7 @@ contains
         character(len=:), allocatable :: nname
         integer :: i
 
-        nname = normalize_name(name)
+        nname = normalise_name(name)
         find_block_data_index = 0
         do i = 1, size(tree%blocks)
             if (tree%blocks(i)%name == nname) then
@@ -450,7 +477,7 @@ contains
         character(len=:), allocatable :: nkey
         integer :: i
 
-        nkey = normalize_key(key)
+        nkey = normalise_key(key)
         find_pair_index = 0
         do i = 1, size(block%pairs)
             if (block%pairs(i)%key == nkey) then

@@ -2,11 +2,11 @@
 
 `fparse` is a Fortran library for parsing a simple block-based input file
 format. I created it for my own projects and decided to share it in case others
-find it useful. 
+find it useful.
 
 ## Input file schema
-It is inspired by well-known formats/schemas like toml and yaml. However, 
-ultimately I designed the format in a way I liked and thought would be easy to 
+It is inspired by well-known formats/schemas like toml and yaml. However,
+ultimately I designed the format in a way I liked and thought would be easy to
 use.
 
 Below is an example of the format:
@@ -34,7 +34,7 @@ END
 
 ## Integration as a git submodule
 It is recommended to include this repo as a git submodule in your project. This
-way you can easily pull updates to fparse while keeping it organized within 
+way you can easily pull updates to fparse while keeping it organised within
 your project structure.
 
 Some recommended layout in your target project:
@@ -156,7 +156,7 @@ the example).
 
 ## Required vs optional keys and defaults
 You are able to specify whether a key is required or optional, and if optional,
-whether it has a default value or not. This is done when defining the schema 
+whether it has a default value or not. This is done when defining the schema
 with `add_key` subroutine.
 
 Each key derived type in the schema has three properties that control how

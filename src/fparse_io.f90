@@ -2,13 +2,14 @@ module fparse_io
     use fparse_util, only: strip_comment, &
                            is_blank, &
                            split_first_token, &
-                           normalize_name, &
+                           normalise_name, &
                            is_absolute_path, &
                            get_dirname, &
                            join_path
     implicit none
 
-    integer, parameter :: max_include_depth = 20
+    ! maximum depth of "include" files. don't think this will be used but could be handy maybe
+    integer, parameter :: max_include_depth = 5
 
 contains
 
@@ -23,28 +24,28 @@ contains
     !
     ! outputs:
     !          1. lines
-    !          2. sources
+    !          2. file_sources
     !          3. line_nums
     !--------------------------------------------------------------------------
-    subroutine load_file_lines(filename, lines, sources, line_nums, ounit)
+    subroutine load_file_lines(filename, lines, file_sources, line_nums, ounit)
         implicit none
         character(len=*), intent(in) :: filename
         character(len=:), allocatable, intent(out) :: lines(:)
-        character(len=:), allocatable, intent(out) :: sources(:)
+        character(len=:), allocatable, intent(out) :: file_sources(:)
         integer, allocatable, intent(out) :: line_nums(:)
         integer, intent(in) :: ounit
         !
-        character(len=:), allocatable :: stack(:)
+        character(len=:), allocatable :: file_stack(:)
         integer :: depth
 
         allocate(character(len=1) :: lines(0))
-        allocate(character(len=1) :: sources(0))
+        allocate(character(len=1) :: file_sources(0))
         allocate(line_nums(0))
-        allocate(character(len=1) :: stack(0))
+        allocate(character(len=1) :: file_stack(0))
 
         depth = 0
 
-        call load_file_recursive(filename, lines, sources, line_nums, stack, depth, ounit)
+        call load_file_recursive(filename, lines, file_sources, line_nums, file_stack, depth, ounit)
 
     end subroutine load_file_lines
 
@@ -60,26 +61,25 @@ contains
     !
     ! outputs:
     !          1. lines
-    !          2. sources
+    !          2. file_sources
     !          3. line_nums
     !--------------------------------------------------------------------------
-    recursive subroutine load_file_recursive(filename, lines, sources, &
-        line_nums, stack, depth, ounit)
+    recursive subroutine load_file_recursive(filename, lines, file_sources, line_nums, file_stack, depth, ounit)
         implicit none
         character(len=*), intent(in) :: filename
         character(len=:), allocatable, intent(inout) :: lines(:)
-        character(len=:), allocatable, intent(inout) :: sources(:)
+        character(len=:), allocatable, intent(inout) :: file_sources(:)
         integer, allocatable, intent(inout) :: line_nums(:)
-        character(len=:), allocatable, intent(inout) :: stack(:)
+        character(len=:), allocatable, intent(inout) :: file_stack(:)
         integer, intent(inout) :: depth
         integer, intent(in) :: ounit
         !
         integer :: unit, io, line_num
-        character(len=1024) :: raw
-        character(len=:), allocatable :: code
+        character(len=1024) :: raw_line
+        character(len=:), allocatable :: content
         character(len=:), allocatable :: token
         character(len=:), allocatable :: rest
-        character(len=:), allocatable :: inc_file
+        character(len=:), allocatable :: include_file
         character(len=:), allocatable :: dirname
 
         if (depth >= max_include_depth) then
@@ -87,12 +87,13 @@ contains
             stop
         endif
 
-        if (is_in_stack(filename, stack)) then
-            write(ounit,*) 'error: include loop detected at ', trim(filename)
+        ! this ensures there is no circular include statements in the input files
+        if (is_in_file_stack(filename, file_stack)) then
+            write(ounit,*) 'error: circular include statements detected in ', trim(filename)
             stop
         endif
 
-        call push_stack(stack, filename)
+        call push_file_stack(file_stack, filename)
         depth = depth + 1
 
         open(newunit=unit, file=trim(filename), status='old', iostat=io)
@@ -105,37 +106,40 @@ contains
         io = 0
         line_num = 0
         do while (io == 0)
-            read(unit,'(A)', iostat=io) raw
+            read(unit,'(A)', iostat=io) raw_line
             if (io /= 0) exit
             line_num = line_num + 1
 
-            call strip_comment(raw, code)
-            if (is_blank(code)) cycle
+            call strip_comment(raw_line, content)
+            if (is_blank(content)) cycle
 
-            call split_first_token(code, token, rest)
-            if (normalize_name(token) == '@INCLUDE' .or. &
-                normalize_name(token) == 'INCLUDE') then
+            ! if formatted in the intended way this will extract the first token which should be @include or include
+            call split_first_token(content, token, rest)
+
+            if (normalise_name(token) == '@INCLUDE' .or. normalise_name(token) == 'INCLUDE') then
+
                 if (len_trim(rest) == 0) then
-                    write(ounit,*) 'error: missing include filename at ', &
-                        trim(filename), ':', line_num
+                    write(ounit,*) 'error: missing include filename at ', trim(filename), ':', line_num
                     stop
                 endif
+
                 if (is_absolute_path(rest)) then
-                    inc_file = trim(rest)
+                    include_file = trim(rest)
                 else
-                    inc_file = join_path(dirname, trim(rest))
+                    include_file = join_path(dirname, trim(rest))
                 endif
-                call load_file_recursive(inc_file, lines, sources, &
-                    line_nums, stack, depth, ounit)
+
+                call load_file_recursive(include_file, lines, file_sources, line_nums, file_stack, depth, ounit)
+
             else
-                call append_line(lines, sources, line_nums, &
-                    trim(code), trim(filename), line_num)
+                call append_line(lines, file_sources, line_nums, trim(content), trim(filename), line_num)
             endif
         enddo
-        close(unit)
 
+        ! close the file and pop the file stack
+        close(unit)
         depth = depth - 1
-        call pop_stack(stack)
+        call pop_file_stack(file_stack)
 
     end subroutine load_file_recursive
 
@@ -152,13 +156,13 @@ contains
     !
     ! outputs:
     !          1. lines
-    !          2. sources
+    !          2. file_sources
     !          3. line_nums
     !--------------------------------------------------------------------------
-    subroutine append_line(lines, sources, line_nums, line, source, line_num)
+    subroutine append_line(lines, file_sources, line_nums, line, source, line_num)
         implicit none
         character(len=:), allocatable, intent(inout) :: lines(:)
-        character(len=:), allocatable, intent(inout) :: sources(:)
+        character(len=:), allocatable, intent(inout) :: file_sources(:)
         integer, allocatable, intent(inout) :: line_nums(:)
         character(len=*), intent(in) :: line
         character(len=*), intent(in) :: source
@@ -176,7 +180,7 @@ contains
         len_sources = 0
         if (n > 0) then
             len_lines = len(lines(1))
-            len_sources = len(sources(1))
+            len_sources = len(file_sources(1))
         endif
         new_len_lines = max(1, max(len_lines, len_trim(line)))
         new_len_sources = max(1, max(len_sources, len_trim(source)))
@@ -186,7 +190,7 @@ contains
 
         if (n > 0) then
             tmp_lines(1:n) = lines
-            tmp_sources(1:n) = sources
+            tmp_sources(1:n) = file_sources
             tmp_nums(1:n) = line_nums
         endif
         tmp_lines(n+1) = line
@@ -194,103 +198,107 @@ contains
         tmp_nums(n+1) = line_num
 
         call move_alloc(tmp_lines, lines)
-        call move_alloc(tmp_sources, sources)
+        call move_alloc(tmp_sources, file_sources)
         call move_alloc(tmp_nums, line_nums)
 
     end subroutine append_line
 
 
     !--------------------------------------------------------------------------
-    ! push_stack
+    ! push_file_stack
     !
-    ! purpose: push a filename onto include stack.
+    ! purpose: push a filename onto the include file stack.
     !
     ! inputs:
-    !          1. stack
+    !          1. file_stack
     !          2. filename
     !
     ! outputs:
-    !          1. stack
+    !          1. file_stack
     !--------------------------------------------------------------------------
-    subroutine push_stack(stack, filename)
+    subroutine push_file_stack(file_stack, filename)
         implicit none
-        character(len=:), allocatable, intent(inout) :: stack(:)
+        character(len=:), allocatable, intent(inout) :: file_stack(:)
         character(len=*), intent(in) :: filename
         character(len=:), allocatable :: tmp(:)
-        integer :: n
+        integer :: n_include_depth
 
-        n = size(stack)
-        if (n > 0) then
-            allocate(character(len=max(1, max(len(stack(1)), &
-                len_trim(filename)))) :: tmp(n+1))
+        n_include_depth = size(file_stack)
+
+        if (n_include_depth > 0) then
+            allocate(character(len=max(1, max(len(file_stack(1)), len_trim(filename)))) :: tmp(n_include_depth+1))
         else
-            allocate(character(len=max(1, len_trim(filename))) :: tmp(n+1))
+            allocate(character(len=max(1, len_trim(filename))) :: tmp(n_include_depth+1))
         endif
-        if (n > 0) then
-            tmp(1:n) = stack
-        endif
-        tmp(n+1) = trim(filename)
-        call move_alloc(tmp, stack)
 
-    end subroutine push_stack
+        if (n_include_depth > 0) then
+            tmp(1:n_include_depth) = file_stack
+        endif
+        tmp(n_include_depth+1) = trim(filename)
+        call move_alloc(tmp, file_stack)
+
+    end subroutine push_file_stack
 
 
     !--------------------------------------------------------------------------
-    ! pop_stack
+    ! pop_file_stack
     !
-    ! purpose: pop the top of the include stack.
+    ! purpose: pop the top of the include file stack.
     !
     ! inputs:
-    !          1. stack
+    !          1. file_stack
     !
     ! outputs:
-    !          1. stack
+    !          1. file_stack
     !--------------------------------------------------------------------------
-    subroutine pop_stack(stack)
+    subroutine pop_file_stack(file_stack)
         implicit none
-        character(len=:), allocatable, intent(inout) :: stack(:)
+        character(len=:), allocatable, intent(inout) :: file_stack(:)
         !
         character(len=:), allocatable :: tmp(:)
-        integer :: n
+        integer :: n_include_depth
 
-        n = size(stack)
-        if (n <= 1) then
+        n_include_depth = size(file_stack)
+
+        if (n_include_depth <= 1) then
             allocate(character(len=1) :: tmp(0))
         else
-            allocate(character(len=len(stack(1))) :: tmp(n-1))
-            tmp = stack(1:n-1)
+            allocate(character(len=len(file_stack(1))) :: tmp(n_include_depth-1))
+            tmp = file_stack(1:n_include_depth-1)
         endif
-        call move_alloc(tmp, stack)
-    end subroutine pop_stack
+
+        call move_alloc(tmp, file_stack)
+
+    end subroutine pop_file_stack
 
 
     !--------------------------------------------------------------------------
-    ! is_in_stack
+    ! is_in_file_stack
     !
-    ! purpose: check if a filename is in the include stack.
+    ! purpose: check if a filename is in the include file stack.
     !
     ! inputs:
     !          1. filename
-    !          2. stack
+    !          2. file_stack
     !
     ! outputs:
-    !          1. is_in_stack
+    !          1. is_in_file_stack
     !--------------------------------------------------------------------------
-    logical function is_in_stack(filename, stack)
+    logical function is_in_file_stack(filename, file_stack)
         implicit none
         character(len=*), intent(in) :: filename
-        character(len=:), allocatable, intent(in) :: stack(:)
+        character(len=:), allocatable, intent(in) :: file_stack(:)
         !
         integer :: i
 
-        is_in_stack = .false.
-        do i = 1, size(stack)
-            if (trim(stack(i)) == trim(filename)) then
-                is_in_stack = .true.
+        is_in_file_stack = .false.
+        do i = 1, size(file_stack)
+            if (trim(file_stack(i)) == trim(filename)) then
+                is_in_file_stack = .true.
                 return
             endif
         enddo
 
-    end function is_in_stack
+    end function is_in_file_stack
 
 end module fparse_io
