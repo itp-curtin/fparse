@@ -18,6 +18,17 @@ set_target_properties(
         Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mod"
 )
 
+include(FetchContent)
+
+FetchContent_Declare(
+    futils
+    GIT_REPOSITORY git@github.com:itp-curtin/futils.git
+    GIT_TAG main
+)
+FetchContent_MakeAvailable(futils)
+
+target_link_libraries(fparse PUBLIC futils::futils)
+
 target_include_directories(
     fparse
     PUBLIC
