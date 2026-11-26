@@ -8,7 +8,10 @@ SETTINGS
 END
 
 OPTIONS
-[Use_Cache] On
+# logical values are case-insensitive and can be
+#   true:  on,  yes, true,  .true.,  1
+#   false: off, no,  false, .false., 0
+[Use_Cache] ON
 [flags] alpha beta \
         gamma delta
 END

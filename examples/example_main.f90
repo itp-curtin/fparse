@@ -1,121 +1,79 @@
 program example_main
-    use fparse
+    use, intrinsic :: iso_fortran_env, only: real64
+    use fparse_m, only: input_t
     implicit none
-    type(schema_type) :: schema
-    type(input_tree_type) :: tree
-    character(len=:), allocatable :: system_name
-    integer :: nelecs
-    real(kind=8) :: dr, rmax
-    integer :: n_rpoints
-    character(len=:), allocatable :: mode
-    character(len=:), allocatable :: flags(:)
-    character(len=:), allocatable :: terms(:)
-    integer :: nflags
-    integer :: nterms
-    logical :: mode_from_input
-    real(kind=8) :: Z
-    real(kind=8) :: cutoff
+    type(input_t) :: input
+    character(len=:), allocatable :: system_name, mode, flags(:), terms(:)
+    integer :: nelecs, n_rpoints, nflags, nterms, nlevels, iterm
     integer, allocatable :: levels(:)
-    integer :: nlevels
+    real(real64) :: dr, rmax, z, cutoff
     logical :: use_cache
-    integer :: iterm
 
-    call init_schema(schema)
-    call build_schema(schema)
+    input = input_t('example_input.in')
+    ! other ways to initialise the input object:
+    ! call input%initialise()
+    ! call input%set_main_input_file('example_input.in')
 
-    ! assumes user is running the example executable from the examples/ directory
-    call parse_input(schema, 'example_input.in', tree, 6)
 
-    ! process data from the TARGET block
-    call get_string(schema, tree, 'target', 'system', system_name, 6)
-    call get_integer(schema, tree, 'target', 'nelecs', nelecs, 6)
-    call get_real(schema, tree, 'target', 'Z', Z, 6)
-    call get_string_list(schema, tree, 'target', 'terms', terms, nterms, 6)
+    ! here we define the input schema, i.e. the expected structure of the input file
+    call input%schema%add_block('TARGET', required=.true.)
+    call input%schema%add_key('TARGET', 'system', required=.true.)
+    call input%schema%add_key('TARGET', 'nelecs', required=.true.)
+    call input%schema%add_key('TARGET', 'z', default_value='0.0')
+    call input%schema%add_key('TARGET', 'terms')
 
-    ! process data from the GRID block
-    call get_real(schema, tree, 'grid', 'dr', dr, 6)
-    call get_real(schema, tree, 'grid', 'rmax', rmax, 6)
-    call get_integer(schema, tree, 'grid', 'n_rpoints', n_rpoints, 6)
+    call input%schema%add_block('GRID', required=.true.)
+    call input%schema%add_key('GRID', 'dr', required=.true.)
+    call input%schema%add_key('GRID', 'rmax', required=.true.)
+    call input%schema%add_key('GRID', 'n_rpoints', required=.true.)
 
-    ! this is using the has_key function a part of the fparse package
-    mode_from_input = has_key(tree, 'options', 'mode')
+    call input%schema%add_block('OPTIONS')
+    call input%schema%add_key('OPTIONS', 'mode', default_value='standard')
+    call input%schema%add_key('OPTIONS', 'flags')
+    call input%schema%add_key('OPTIONS', 'use_cache', default_value='off')
 
-    ! process data from the OPTIONS block
-    call get_string(schema, tree, 'options', 'mode', mode, 6)
-    call get_logical(schema, tree, 'options', 'use_cache', use_cache, 6)
-    call get_string_list(schema, tree, 'options', 'flags', flags, nflags, 6)
+    call input%schema%add_block('SETTINGS')
+    call input%schema%add_key('SETTINGS', 'cutoff', default_value='1.0e-6')
+    call input%schema%add_key('SETTINGS', 'levels')
 
-    ! process data from the SETTINGS block
-    call get_real(schema, tree, 'settings', 'cutoff', cutoff, 6)
-    call get_integer_list(schema, tree, 'settings', 'levels', levels, nlevels, 6)
+    ! at this point we parse the input file and check that it follows the schema defined above
+    call input%parse_input()
 
-    ! print out the data parsed from the input file 
-    write(6,*) 'system: ', trim(system_name)
-    write(6,*) 'nelecs: ', nelecs
-    write(6,*) 'Z: ', Z
-    write(6,*) 'dr: ', dr
-    write(6,*) 'rmax: ', rmax
-    write(6,*) 'n_rpoints: ', n_rpoints
-    if (mode_from_input) then
-        write(6,*) 'mode: ', trim(mode), ' (input)'
+    ! now we can retrieve the values from the input file, using the read_* bindings
+    call input%read_string('target', 'system', system_name)
+    call input%read_integer('target', 'nelecs', nelecs)
+    call input%read_real('target', 'z', z)
+    call input%read_string_list('target', 'terms', terms, nterms)
+    call input%read_real('grid', 'dr', dr)
+    call input%read_real('grid', 'rmax', rmax)
+    call input%read_integer('grid', 'n_rpoints', n_rpoints)
+    call input%read_string('options', 'mode', mode)
+    ! read_logical accepts the following inputs which correspond to true and false:
+    ! true:  on,  yes, true,  .true.,  1
+    ! false: off, no,  false, .false., 0
+    call input%read_logical('options', 'use_cache', use_cache)
+    call input%read_string_list('options', 'flags', flags, nflags)
+    call input%read_real('settings', 'cutoff', cutoff)
+    call input%read_integer_list('settings', 'levels', levels, nlevels)
+
+    print *, 'system: ', system_name
+    print *, 'nelecs: ', nelecs
+    print *, 'Z: ', z
+    print *, 'dr: ', dr
+    print *, 'rmax: ', rmax
+    print *, 'n_rpoints: ', n_rpoints
+    if (input%has_key('options', 'mode')) then
+        print *, 'mode: ', mode, ' (input)'
     else
-        write(6,*) 'mode: ', trim(mode), ' (default)'
-    endif
-    write(6,*) 'use_cache: ', use_cache
-    write(6,*) 'flags: ', nflags
-    write(6,*) 'cutoff: ', cutoff
-    write(6,*) 'levels: ', nlevels
-    write(6,*) 'terms: ', nterms
-    write(6,*) '----------------------------------------'
-    write(6,*) ' requested term symbols:'
-    if (nterms > 0) then
-        do iterm = 1, nterms
-            write(6,*) '  ', trim(terms(iterm))
-        end do
-    else
-        write(6,*) '  none'
-    endif
-
-contains
-
-    !--------------------------------------------------------------------------
-    ! build_schema
-    !
-    ! purpose: define the schema for the example input file.
-    !
-    ! inputs:
-    !          1. schema
-    !
-    ! outputs:
-    !          1. schema
-    !--------------------------------------------------------------------------
-    subroutine build_schema(schema)
-        implicit none
-        type(schema_type), intent(inout) :: schema
-
-                             ! blockname, required
-        call add_block(schema, 'TARGET',  .true.)
-
-                           ! blockname, keyname, required, has_default, default_value
-        call add_key(schema, 'TARGET', 'system', .true.,   .false.,     '')
-        call add_key(schema, 'TARGET', 'nelecs', .true., .false., '')
-        call add_key(schema, 'TARGET', 'z', .false., .true., '0.0')
-        call add_key(schema, 'TARGET', 'terms', .false., .false., '')
-
-        call add_block(schema, 'GRID', .true.)
-        call add_key(schema, 'GRID', 'dr', .true., .false., '')
-        call add_key(schema, 'GRID', 'rmax', .true., .false., '')
-        call add_key(schema, 'GRID', 'n_rpoints', .true., .false., '')
-
-        call add_block(schema, 'OPTIONS', .false.)
-        call add_key(schema, 'OPTIONS', 'mode', .false., .true., 'standard')
-        call add_key(schema, 'OPTIONS', 'flags', .false., .false., '')
-        call add_key(schema, 'OPTIONS', 'use_cache', .false., .true., 'off')
-
-        call add_block(schema, 'SETTINGS', .false.)
-        call add_key(schema, 'SETTINGS', 'cutoff', .false., .true., '1.0e-6')
-        call add_key(schema, 'SETTINGS', 'levels', .false., .false., '')
-
-    end subroutine build_schema
+        print *, 'mode: ', mode, ' (default)'
+    end if
+    print *, 'use_cache: ', use_cache
+    print *, 'flags: ', nflags
+    print *, 'cutoff: ', cutoff
+    print *, 'levels: ', nlevels
+    print *, 'requested term symbols:'
+    do iterm = 1, nterms
+        print *, '  ', trim(terms(iterm))
+    end do
 
 end program example_main
