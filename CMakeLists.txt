@@ -18,14 +18,16 @@ set_target_properties(
         Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mod"
 )
 
-include(FetchContent)
-
-FetchContent_Declare(
-    futils
-    GIT_REPOSITORY git@github.com:itp-curtin/futils.git
-    GIT_TAG main
-)
-FetchContent_MakeAvailable(futils)
+if(NOT TARGET futils::futils)
+    include(FetchContent)
+    set(FUTILS_BUILD_EXAMPLES OFF CACHE BOOL "Build futils examples")
+    FetchContent_Declare(
+        futils
+        GIT_REPOSITORY https://github.com/itp-curtin/futils.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(futils)
+endif()
 
 target_link_libraries(fparse PUBLIC futils::futils)
 
@@ -38,12 +40,13 @@ target_include_directories(
 target_sources(
     fparse
     PRIVATE
-        src/fparse_util.f90
-        src/fparse_types.f90
-        src/fparse_io.f90
-        src/fparse_schema.f90
-        src/fparse_getters.f90
-        src/fparse_parser.f90
+        src/fparse_tools.f90
+        src/file_reader.f90
+        src/key_def.f90
+        src/block_def.f90
+        src/schema.f90
+        src/block_data.f90
+        src/input.f90
         src/fparse.f90
 )
 
