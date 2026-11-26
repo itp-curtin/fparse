@@ -1,188 +1,204 @@
-module fparse_schema
-    use fparse_types
-    use fparse_util, only: normalise_name, normalise_key
+module schema_m
+    use strings_m, only: string_t
+    use block_def_m, only: block_def_t
+    use fparse_tools_m, only: fparse_tools
+    use error_handling_m, only: error_handling
     implicit none
+
+    private
+
+    public :: schema_t
+
+    type :: schema_t
+        private
+        type(block_def_t), allocatable :: blocks(:)
+    contains
+        procedure :: add_block
+        procedure :: add_key
+        procedure :: has_block
+        procedure :: has_key
+        procedure :: is_required
+        procedure :: get_default
+        procedure :: required_blocks
+        procedure :: required_keys
+        procedure, private :: find_block
+        procedure, private :: get_block_idx
+    end type schema_t
+
+    interface schema_t
+        module procedure new_schema
+    end interface schema_t
 
 contains
 
-    !--------------------------------------------------------------------------
-    ! init_schema
-    !
-    ! purpose: initialise an empty schema.
-    !
-    ! inputs:
-    !          1. schema
-    !
-    ! outputs:
-    !          1. schema
-    !--------------------------------------------------------------------------
-    subroutine init_schema(schema)
-        implicit none
-        type(schema_type), intent(out) :: schema
+    function new_schema() result(schema)
+        type(schema_t) :: schema
 
         allocate(schema%blocks(0))
 
-    end subroutine init_schema
+    end function new_schema
 
 
-    !--------------------------------------------------------------------------
-    ! add_block
-    !
-    ! purpose: add a block definition to the schema.
-    !
-    ! inputs:
-    !          1. schema
-    !          2. name
-    !          3. required
-    !
-    ! outputs:
-    !          1. schema
-    !--------------------------------------------------------------------------
-    subroutine add_block(schema, name, required)
-        implicit none
-        type(schema_type), intent(inout) :: schema
+    subroutine add_block(self, name, required)
+        class(schema_t), intent(inout) :: self
         character(len=*), intent(in) :: name
-        logical, intent(in) :: required
-        !
-        type(block_def_type), allocatable :: tmp(:)
-        integer :: n_curr_existing_blocks
+        logical, intent(in), optional :: required
+        type(block_def_t) :: block
 
-        n_curr_existing_blocks = size(schema%blocks)
-        allocate(tmp(n_curr_existing_blocks+1))
+        block = block_def_t(name, required)
 
-        if (n_curr_existing_blocks > 0) then
-            tmp(1:n_curr_existing_blocks) = schema%blocks
-        endif
+        if (self%has_block(block%get_name())) then
+            call error_handling%abort_routine(0, 'fparse', 'duplicate schema block: ' // block%get_name())
+        end if
 
-        ! after this call, the allocation of tmp is transferred to schema%blocks, and tmp is deallocated
-        call move_alloc(tmp, schema%blocks)
-
-        schema%blocks(n_curr_existing_blocks+1)%name = normalise_name(name)
-        schema%blocks(n_curr_existing_blocks+1)%required = required
-
-        ! initialise the number of keys in the block to 0
-        allocate(schema%blocks(n_curr_existing_blocks+1)%keys(0))
+        if (.not. allocated(self%blocks)) allocate(self%blocks(0))
+        self%blocks = [self%blocks, block]
 
     end subroutine add_block
 
 
-    !--------------------------------------------------------------------------
-    ! add_key
-    !
-    ! purpose: add a key definition to a block in the schema.
-    !
-    ! inputs:
-    !          1. schema
-    !          2. block_name
-    !          3. key_name
-    !          4. required
-    !          5. has_default
-    !          6. default_value
-    !
-    ! outputs:
-    !          1. schema
-    !--------------------------------------------------------------------------
-    subroutine add_key(schema, block_name, key_name, required, has_default, default_value)
-        implicit none
-        type(schema_type), intent(inout) :: schema
-        character(len=*), intent(in) :: block_name
-        character(len=*), intent(in) :: key_name
-        logical, intent(in) :: required
-        logical, intent(in) :: has_default
-        character(len=*), intent(in) :: default_value
+    subroutine add_key(self, block_name, key_name, required, has_default, default_value)
+        class(schema_t), intent(inout) :: self
+        character(len=*), intent(in) :: block_name, key_name
+        logical, intent(in), optional :: required, has_default
+        character(len=*), intent(in), optional :: default_value
         !
+        logical :: use_default
         integer :: iblock
-        type(key_def_type), allocatable :: tmp(:)
-        integer :: n_curr_existing_keys
 
-        iblock = find_block_index(schema, block_name)
-        if (iblock <= 0) then
-            write(*,*) 'error: block not found in schema: ', trim(block_name)
-            stop
-        endif
+        iblock = self%get_block_idx(block_name)
 
-        n_curr_existing_keys = size(schema%blocks(iblock)%keys)
-        allocate(tmp(n_curr_existing_keys+1))
+        use_default = present(default_value)
+        if (present(has_default)) use_default = has_default
 
-        if (n_curr_existing_keys > 0) then
-            tmp(1:n_curr_existing_keys) = schema%blocks(iblock)%keys
-        endif
+        if (use_default) then
+            if (.not. present(default_value)) then
+                call error_handling%abort_routine(0, 'fparse', 'default value not supplied: ' // key_name)
+            end if
 
-        call move_alloc(tmp, schema%blocks(iblock)%keys)
-
-        schema%blocks(iblock)%keys(n_curr_existing_keys+1)%name = normalise_key(key_name)
-        schema%blocks(iblock)%keys(n_curr_existing_keys+1)%required = required
-        schema%blocks(iblock)%keys(n_curr_existing_keys+1)%has_default = has_default
-
-        if (has_default) then
-            schema%blocks(iblock)%keys(n_curr_existing_keys+1)%default_value = trim(default_value)
-        endif
+            call self%blocks(iblock)%add_key(key_name, required, default_value)
+        else
+            call self%blocks(iblock)%add_key(key_name, required)
+        end if
 
     end subroutine add_key
 
 
-    !--------------------------------------------------------------------------
-    ! find_block_index
-    !
-    ! purpose: find a block index by name in the schema.
-    !
-    ! inputs:
-    !          1. schema
-    !          2. name
-    !
-    ! outputs:
-    !          1. find_block_index
-    !--------------------------------------------------------------------------
-    integer function find_block_index(schema, name)
-        implicit none
-        type(schema_type), intent(in) :: schema
+    integer function find_block(self, name) result(iblock)
+        class(schema_t), intent(in) :: self
         character(len=*), intent(in) :: name
+        character(len=:), allocatable :: normalised
+        integer :: i
+
+        ! if the block with name "name" is not found function returns 0
+        iblock = 0
+
+        if (.not. allocated(self%blocks)) return
+        normalised = fparse_tools%normalise_name(name)
+
+        do i = 1, size(self%blocks)
+            if (self%blocks(i)%get_name() /= normalised) cycle
+            iblock = i
+            return
+        end do
+
+    end function find_block
+
+
+    integer function get_block_idx(self, name) result(iblock)
+        class(schema_t), intent(in) :: self
+        character(len=*), intent(in) :: name
+
+        iblock = self%find_block(name)
+        if (iblock == 0) then
+            call error_handling%abort_routine(0, 'fparse', 'block not in schema: ' // name)
+        end if
+
+    end function get_block_idx
+
+
+    logical function has_block(self, block_name)
+        class(schema_t), intent(in) :: self
+        character(len=*), intent(in) :: block_name
+
+        has_block = self%find_block(block_name) > 0
+
+    end function has_block
+
+
+    logical function has_key(self, block_name, key_name)
+        class(schema_t), intent(in) :: self
+        character(len=*), intent(in) :: block_name, key_name
         !
-        character(len=:), allocatable :: nname
+        integer :: iblock
+
+        has_key = .false.
+        iblock = self%find_block(block_name)
+        if (iblock > 0) has_key = self%blocks(iblock)%has_key(key_name)
+
+    end function has_key
+
+
+    logical function is_required(self, block_name, key_name)
+        class(schema_t), intent(in) :: self
+        character(len=*), intent(in) :: block_name
+        character(len=*), intent(in), optional :: key_name
+        !
+        integer :: iblock
+
+        iblock = self%get_block_idx(block_name)
+        if (present(key_name)) then
+            is_required = self%blocks(iblock)%key_is_required(key_name)
+        else
+            is_required = self%blocks(iblock)%is_required()
+        end if
+
+    end function is_required
+
+
+    subroutine get_default(self, block_name, key_name, value, found)
+        class(schema_t), intent(in) :: self
+        character(len=*), intent(in) :: block_name, key_name
+        character(len=:), allocatable, intent(out) :: value
+        logical, intent(out) :: found
+        !
+        integer :: iblock
+
+        iblock = self%get_block_idx(block_name)
+        call self%blocks(iblock)%get_default(key_name, value, found)
+
+    end subroutine get_default
+
+
+    function required_blocks(self) result(names)
+        class(schema_t), intent(in) :: self
+        type(string_t), allocatable :: names(:)
+        !
         integer :: i
 
-        nname = normalise_name(name)
+        allocate(names(0))
+        if (.not. allocated(self%blocks)) return
 
-        find_block_index = 0
-        do i = 1, size(schema%blocks)
-            if (schema%blocks(i)%name == nname) then
-                find_block_index = i
-                return
-            endif
-        enddo
+        do i = 1, size(self%blocks)
+            if (self%blocks(i)%is_required()) then
+                names = [names, string_t(self%blocks(i)%get_name())]
+            end if
+        end do
 
-    end function find_block_index
+    end function required_blocks
 
 
-    !--------------------------------------------------------------------------
-    ! find_key_index
-    !
-    ! purpose: find a key index by name in a block definition.
-    !
-    ! inputs:
-    !          1. block
-    !          2. name
-    !
-    ! outputs:
-    !          1. find_key_index
-    !--------------------------------------------------------------------------
-    integer function find_key_index(block, name)
-        implicit none
-        type(block_def_type), intent(in) :: block
-        character(len=*), intent(in) :: name
-        character(len=:), allocatable :: nname
-        integer :: i
+    function required_keys(self, block_name) result(names)
+        class(schema_t), intent(in) :: self
+        character(len=*), intent(in) :: block_name
+        !
+        type(string_t), allocatable :: names(:)
+        integer :: iblock
 
-        nname = normalise_key(name)
+        iblock = self%get_block_idx(block_name)
 
-        find_key_index = 0
-        do i = 1, size(block%keys)
-            if (block%keys(i)%name == nname) then
-                find_key_index = i
-                return
-            endif
-        enddo
+        names = self%blocks(iblock)%required_keys()
 
-    end function find_key_index
+    end function required_keys
 
-end module fparse_schema
+end module schema_m
